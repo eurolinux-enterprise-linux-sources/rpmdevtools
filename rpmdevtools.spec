@@ -4,7 +4,7 @@
 
 Name:           rpmdevtools
 Version:        7.5
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        RPM Development Tools
 
 Group:          Development/Tools
@@ -14,6 +14,7 @@ URL:            https://fedorahosted.org/rpmdevtools/
 Source0:        https://fedorahosted.org/released/rpmdevtools/%{name}-%{version}.tar.xz
 Source1:        http://people.redhat.com/nphilipp/spectool/spectool-%{spectool_version}.tar.bz2
 Patch0:         spectool-1.0.10-sourcenum.patch
+Patch1:         rpmdevtools-7.5-730770.patch
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildArch:      noarch
@@ -62,6 +63,7 @@ cp -p spectool-%{spectool_version}/README README.spectool
 cd spectool-%{spectool_version}
 %patch0 -p1
 cd ..
+%patch1 -p1
 
 
 %build
@@ -114,6 +116,9 @@ rm -rf $RPM_BUILD_ROOT
 
 
 %changelog
+* Tue Aug 28 2012 Thomas Woerner <twoerner@redhat.com> - 7.5-2
+- removed deprecated BuildRoot tags from spec file samples (RHBZ#730770)
+
 * Thu Sep 17 2009 Ville Skyttä <ville.skytta@iki.fi> - 7.5-1
 - Update to 7.5, fixes #502403.
 

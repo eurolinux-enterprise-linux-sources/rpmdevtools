@@ -2,7 +2,7 @@
 
 Name:           rpmdevtools
 Version:        8.3
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        RPM Development Tools
 
 # rpmdev-setuptree is GPLv2, everything else GPLv2+
@@ -104,6 +104,9 @@ done
 
 
 %changelog
+* Fri Dec 27 2013 Daniel Mach <dmach@redhat.com> - 8.3-5
+- Mass rebuild 2013-12-27
+
 * Wed Aug 14 2013 Thomas Woerner <twoerner@redhat.com> - 8.3-3.1
 - removed fakeroot requirement and all qa_robot scripts (RHBZ#840780)
 

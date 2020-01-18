@@ -1,0 +1,21 @@
+diff -up rpmdevtools-8.3/Makefile.am.no_qa_robot rpmdevtools-8.3/Makefile.am
+--- rpmdevtools-8.3/Makefile.am.no_qa_robot	2011-01-02 23:17:25.000000000 +0100
++++ rpmdevtools-8.3/Makefile.am	2013-08-14 18:38:28.070661002 +0200
+@@ -1,4 +1,4 @@
+-SUBDIRS = devscripts emacs qa-robot
++SUBDIRS = devscripts emacs
+ 
+ pkgsysconfdir = $(sysconfdir)/rpmdevtools
+ bashcompdir = $(sysconfdir)/bash_completion.d
+diff -up rpmdevtools-8.3/Makefile.in.no_qa_robot rpmdevtools-8.3/Makefile.in
+--- rpmdevtools-8.3/Makefile.in.no_qa_robot	2012-09-02 23:07:03.000000000 +0200
++++ rpmdevtools-8.3/Makefile.in	2013-08-14 18:38:33.117671197 +0200
+@@ -215,7 +215,7 @@ target_alias = @target_alias@
+ top_build_prefix = @top_build_prefix@
+ top_builddir = @top_builddir@
+ top_srcdir = @top_srcdir@
+-SUBDIRS = devscripts emacs qa-robot
++SUBDIRS = devscripts emacs
+ pkgsysconfdir = $(sysconfdir)/rpmdevtools
+ bashcompdir = $(sysconfdir)/bash_completion.d
+ bin_SCRIPTS = rpmdev-newinit rpmdev-newspec rpmdev-rmdevelrpms spectool

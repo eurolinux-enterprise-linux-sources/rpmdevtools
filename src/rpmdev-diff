@@ -1,0 +1,253 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+
+# rpmdev-diff -- Diff contents of two archives
+#
+# Copyright (c) 2004-2010 Ville Skyttä <ville.skytta@iki.fi>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+set -e
+
+unset CDPATH
+tmpdir=
+diffopts=
+list=
+long=
+contents=
+meta=
+diffcopts=-Nup
+diffoopts=-U0
+
+trap cleanup EXIT
+cleanup()
+{
+    set +e
+    [ -z "$tmpdir" -o ! -d "$tmpdir" ] || rm -rf "$tmpdir"
+}
+
+version()
+{
+    cat <<EOF
+rpmdev-diff version 1.4
+
+Copyright (c) 2004-2010 Ville Skyttä <ville.skytta@iki.fi>
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+EOF
+}
+
+help()
+{
+    cat <<EOF
+rpmdev-diff diffs contents of two archives.
+
+See rpmdev-extract(1) for information about supported archive types.
+EOF
+    usage
+    echo ""
+    echo "Report bugs to <https://bugzilla.redhat.com/>."
+}
+
+usage()
+{
+    cat <<EOF
+Usage: rpmdev-diff [OPTION]... [DIFF-OPTIONS] FROM-ARCHIVE TO-ARCHIVE
+
+Options:
+  -c, --contents   Diff contents of files in archives.  This is the default.
+  -l, --list       Diff lists of files in archives.
+  -L, --long-list  Diff long lists (akin to 'find -ls') of files in archives.
+  -m, --metadata   Diff archive metadata (only implemented for rpms for now).
+  -h, --help       Print help message and exit.
+  -v, --version    Print version information and exit.
+  diff-options     Options passed to diff(1).  The first repeated argument of
+                   the above or the first argument starting with a '-' but not
+                   one of the above starts diff-options, the first one not
+                   starting with it ends them.  Default: $diffcopts for contents
+                   (in addition to -r which will always be passed), -U0 for
+                   others.
+
+More than one of -c, -l, -L, and -m may be specified.
+EOF
+}
+
+rpm_meta()
+{
+    rpm -qp --nodigest --nosignature --info --changelog --scripts --triggers \
+        --qf='[Requires: %{REQUIRENAME} %{REQUIREFLAGS:depflags} %{REQUIREVERSION}\n][Provides: %{PROVIDENAME} %{PROVIDEFLAGS:depflags} %{PROVIDEVERSION}\n][Obsoletes: %{OBSOLETENAME} %{OBSOLETEFLAGS:depflags} %{OBSOLETEVERSION}\n][Conflicts: %{CONFLICTNAME} %{CONFLICTFLAGS:depflags} %{CONFLICTVERSION}\n]' \
+        "$@" 2>/dev/null
+}
+
+while true ; do
+    case $1 in
+        -l|--list)
+            if [[ $list$diffopts ]] ; then
+                diffopts+=" $1"
+            else
+                list=true
+            fi
+            ;;
+        -L|--long-list)
+            if [[ $long$diffopts ]] ; then
+                diffopts+=" $1"
+            else
+                long=true
+            fi
+            ;;
+        -c|--contents)
+            if [[ $contents$diffopts ]] ; then
+                diffopts+=" $1"
+            else
+                contents=true
+            fi
+            ;;
+        -m|--metadata)
+            if [[ $meta$diffopts ]] ; then
+                diffopts+=" $1"
+            else
+                meta=true
+            fi
+            ;;
+        -h|--help)
+            if [[ $diffopts ]] ; then
+                diffopts+=" $1"
+            else
+                help
+                exit 0
+            fi
+            ;;
+        -v|--version)
+            if [[ $diffopts ]] ; then
+                diffopts+=" $1"
+            else
+                version
+                exit 0
+            fi
+            ;;
+        -*)
+            diffopts+=" $1"
+            ;;
+        *)
+            break
+            ;;
+    esac
+    shift
+done
+if [[ $# -lt 2 ]] ; then
+    usage
+    exit 1
+fi
+for file in "$1" "$2" ; do
+    if [[ ! -f $file ]] ; then
+        [[ -e $file ]] && \
+            echo "Error: not a regular file: '$file'" >&2 ||
+            echo "Error: file does not exist: '$file'" >&2
+        exit 1
+    fi
+done
+
+tmpdir=`mktemp -d ${TMPDIR:-/tmp}/rpmdev-diff.XXXXXX`
+
+mkdir "$tmpdir/old" "$tmpdir/new"
+rpmdev-extract -q -C "$tmpdir/old" "$1"
+rpmdev-extract -q -C "$tmpdir/new" "$2"
+if ${meta:-false} ; then
+    set +e
+    rpm_meta "$1" > "$tmpdir/old.meta"
+    rpm_meta "$2" > "$tmpdir/new.meta"
+    set -e
+fi
+
+# It would be nice if rpmdev-extract could do some of the chmods.
+find "$tmpdir"/* -type d -exec chmod u+rx {} ';' # Note: -exec, not xargs here.
+chmod -R u+rw "$tmpdir"/*
+cd "$tmpdir"
+
+# Did the archives uncompress into base dirs?
+if [[ $(ls -1d old/* | wc -l) -eq 1 ]] ; then
+  old=$(ls -1d old/*)
+else
+  old=old
+fi
+if [[ $(ls -1d new/* | wc -l) -eq 1 ]] ; then
+  new=$(ls -1d new/*)
+else
+  new=new
+fi
+
+# Fixup base dirs to the same level.
+if [[ $(basename "$old") != $(basename "$new") ]] ; then
+  if [[ $old != old ]] ; then
+    mv "$old" .
+    old=`basename "$old"`
+  fi
+  if [[ $new != new ]] ; then
+    mv "$new" .
+    new=`basename "$new"`
+  fi
+fi
+
+# Contents mode is the default.
+if [[ -z $list$long$meta$contents ]] ; then
+    contents=true
+else
+    contents=${contents:-false}
+fi
+list=${list:-false}
+long=${long:-false}
+meta=${meta:-false}
+
+# Here we go.
+
+if $meta ; then
+    set +e
+    diff ${diffopts:-$diffoopts} old.meta new.meta
+    [[ $? -eq 0 || $? -eq 1 ]] || exit $?
+    set -e
+fi
+
+if $list ; then
+    find "$old" | sort | cut -d/ -f 2- -s > "$old.files"
+    find "$new" | sort | cut -d/ -f 2- -s > "$new.files"
+    set +e
+    diff ${diffopts:-$diffoopts} "$old.files" "$new.files"
+    [[ $? -eq 0 || $? -eq 1 ]] || exit $?
+    set -e
+fi
+
+if $long ; then
+    find "$old" -ls | \
+        perl -pe "s|^(?:[\d\s]*)(\S+)(?:\s+\d+)(.+)$|\1\2| ;
+                  s|.*\s\Q$old\E$|| ; s|(\s)\Q$old/\E|\1|" | \
+        sort > "$old.files"
+    find "$new" -ls | \
+        perl -pe "s|^(?:[\d\s]*)(\S+)(?:\s+\d+)(.+)$|\1\2| ;
+                  s|.*\s\Q$new\E$|| ; s|(\s)\Q$new/\E|\1|" | \
+        sort > "$new.files"
+    set +e
+    diff ${diffopts:-$diffoopts} "$old.files" "$new.files"
+    [[ $? -eq 0 || $? -eq 1 ]] || exit $?
+    set -e
+fi
+
+if $contents ; then
+    set +e
+    diff -r ${diffopts:-$diffcopts} "$old" "$new"
+    [[ $? -eq 0 || $? -eq 1 ]] || exit $?
+    set -e
+fi

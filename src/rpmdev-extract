@@ -1,0 +1,266 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+
+# rpmdev-extract -- Extract various archives in "tar xvf" style
+#
+# Copyright (c) 2004-2011 Ville Skyttä <ville.skytta@iki.fi>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+# TODO: more archive types
+
+set -e
+unset CDPATH
+quiet=
+force=
+dir=
+
+shopt -s extglob
+
+version()
+{
+    cat <<EOF
+rpmdev-extract version 1.10
+
+Copyright (c) 2004-2011 Ville Skyttä <ville.skytta@iki.fi>
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+EOF
+}
+
+help()
+{
+    cat <<EOF
+rpmdev-extract extracts various archives in "tar xvf" style.
+
+Depending on availability of external (un)archiver programs, the following
+archive types are supported: ace, ar/deb, arj, cab/exe, cpio, lha, rar, rpm,
+tar, zip/jar, zoo.
+
+EOF
+    usage
+    echo ""
+    echo "Report bugs to <http://bugzilla.redhat.com/>."
+}
+
+usage()
+{
+    cat <<EOF
+Usage: rpmdev-extract [OPTION]... ARCHIVE...
+
+Options:
+  -q        Suppress output.
+  -f        Force overwriting existing files.
+  -C DIR    Change to directory DIR before extracting.
+  -h        Print help message and exit.
+  -v        Print version information and exit.
+EOF
+}
+
+_cmd()
+{
+    for x in $@ ; do
+        type $x &>/dev/null && echo $x && return
+    done
+}
+
+fmime()
+{
+    case ${1%%;*} in
+        application/x-zip|application/zip)                  ftype=zip  ;;
+        application/x-tar*)                                 ftype=tar  ;;
+        application/x-rpm)                                  ftype=rpm  ;;
+        application/x-archive|application/x-debian-package) ftype=ar   ;;
+        application/x-arj)                                  ftype=arj  ;;
+        application/x-zoo)                                  ftype=zoo  ;;
+        application/x-lha*)                                 ftype=lha  ;;
+        application/x-rar)                                  ftype=rar  ;;
+        application/x-compress|application/x-gzip)
+            decomp="$(_cmd pigz gzip) -dc" ;;
+        application/x-bzip2)
+            decomp="$(_cmd lbzip2 pbzip2 bzip2) -dc" ;;
+        application/x-xz)
+            decomp="xz -dc" ;;
+        application/x-lzip)
+            decomp="lzip -dc" ;;
+        application/x-lrzip)
+            decomp="lrzip -dqo-" ;;
+    esac
+}
+
+ftype()
+{
+    ftype= decomp=
+
+    t=$(file -ibL "$1" 2>/dev/null)
+    fmime "$t"
+    [[ -n $ftype ]] && return
+
+    t=$(file -zibL "$1" 2>/dev/null)
+    fmime "$t"
+    [[ -n $ftype ]] && return
+
+    t=$(file -bL "$1" 2>/dev/null)
+    case $t in
+        *lzop\ compressed*)                          decomp="lzop -dc" ;;
+    esac
+
+    t=$(file -zbL "$1" 2>/dev/null)
+    case $t in
+        *7-zip\ archive*)                                   ftype=7z   ;;
+        *Z[iI][pP]\ *archive*)                              ftype=zip  ;;
+        *tar\ archive*)                                     ftype=tar  ;;
+        *ar\ archive*|*Debian\ *package*)                   ftype=ar   ;;
+        *ARJ\ *archive*)                                    ftype=arj  ;;
+        *Zoo\ *archive*)                                    ftype=zoo  ;;
+        *cpio\ archive*)                                    ftype=cpio ;;
+        *C[aA][bB]*archive*)                                ftype=cab  ;;
+        RPM\ *)                                             ftype=rpm  ;;
+        *ACE\ *archive*)                                    ftype=ace  ;;
+        *LHa\ *archive*)                                    ftype=lha  ;;
+        *RAR\ *archive*)                                    ftype=rar  ;;
+    esac
+
+    # Fallback stuff for things not (enough) supported by file(1).
+    if [[ -z $ftype ]] ; then
+        if [[ -z $decomp ]] ; then
+            case $1 in
+                # xz support added in file 5.01; no magic in lzma
+                *.@(xz|txz|lzma|tlz)) decomp="xz -dc" ;;
+                # lzip support added in file 5.00
+                *.lz)                 decomp="lzip -dc" ;;
+                # lrzip support added in file > 5.05
+                *.lrz)                decomp="lrzip -dqo-" ;;
+            esac
+        fi
+        if [[ -n $decomp ]] ; then
+            case $1 in
+                *.tar.*|*.tzo|*.tlz|*.txz)                  ftype=tar  ;;
+                *.cpio.*)                                   ftype=cpio ;;
+            esac
+        fi
+    fi
+}
+
+unarch()
+{
+    ftype "$1"
+    case $ftype in
+        tar)
+            [[ -n $force ]] && o= || o=k
+            [[ -n $quiet ]] && v= || v=v
+            ${decomp:-cat} "$1" | tar x$v$o
+            ;;
+        zip)
+            [[ -n $force ]] && o=-o || o=-n
+            unzip $o "$1"
+            ;;
+        rar)
+            [[ -n $force ]] && o=+ || o=-
+            unrar x -o$o -y "$1"
+            ;;
+        cab)
+            # force not supported, it's always on (as of cabextract 1.[01])
+            cabextract -f "$1"
+            ;;
+        rpm)
+            qf='%{NAME}-%{VERSION}-%{RELEASE}.%|SOURCERPM?{%{ARCH}}:{src}|'
+            name=$(rpm -qp --qf="$qf" --nodigest --nosignature "$1")
+            mkdir -p "$name"
+            cd "$name"
+            rpm2cpio "$1" \
+            | cpio --quiet --no-absolute-filenames -id${force:+u}mv 2>&1 \
+            | sed "s|^\(\./\)\?|$name/|"
+            cd - &>/dev/null
+            ;;
+        cpio)
+            ${decomp:-cat} "$1" | \
+                cpio --quiet --no-absolute-filenames -id${force:+u}mv
+            ;;
+        ar)
+            # force not supported, it's always on
+            ar xvo "$1"
+            ;;
+        ace)
+            [[ -n $force ]] && o=+ || o=-
+            unace x -o$o -y "$1"
+            ;;
+        arj)
+            # force not supported, it's always off (as of unarj 2.6[35])
+            # it will also return an error if some files already exist :(
+            unarj x "$1"
+            ;;
+        zoo)
+            zoo x${force:+OOS} "$1"
+            ;;
+        lha)
+            lha x${force:+f} "$1" < /dev/null
+            ;;
+        7z)
+            # -y is as close to force as we have as of p7zip 4.51
+            7za x ${force:+-y} "$1"
+            ;;
+        *)
+            echo "Error: unrecognized archive: '$1'" >&2
+            exit 1
+            ;;
+    esac
+}
+
+dir="$PWD"
+
+while getopts qfC:hv key ; do
+    case $key in
+        q) quiet=1 ;;
+        f) force=1 ;;
+        C) dir="$OPTARG" ;;
+        h) help ; exit 0 ;;
+        v) version ; exit 0 ;;
+        *) usage ; exit 1 ;;
+    esac
+done
+shift $(( $OPTIND -1 ))
+
+files=()
+for file in "$@" ; do
+    if [[ ! -f $file ]] ; then
+        [[ -e $file ]] && \
+            echo "Error: not a regular file: '$file'" >&2 ||
+            echo "Error: file does not exist: '$file'" >&2
+        exit 1
+    fi
+    [[ $file == /* ]] && files+=( "$file" ) || files+=( "$PWD/$file" )
+done
+
+if [[ ! -d $dir ]] ; then
+    [[ -e $dir ]] && \
+        echo "Error: not a directory: '$dir'" >&2 ||
+        echo "Error: directory does not exist: '$dir'" >&2
+    exit 1
+fi
+cd "$dir"
+
+for file in "${files[@]}" ; do
+    # Not that fancy at the moment, but -q is for backwards compatibility
+    # and in case we need to do more fine-grained stuff for some unarchivers
+    # later.
+    if [[ -n $quiet ]] ; then
+        unarch "$file" >/dev/null
+    else
+        unarch "$file"
+    fi
+done
